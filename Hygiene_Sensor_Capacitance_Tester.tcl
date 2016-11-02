@@ -19,6 +19,9 @@ package require BWidget
 package require Tktable
 package require Tk
 
+source eventDetection.tcl
+source thresholdDetection.tcl
+
 proc push {} {
 	# Pocedure to store the ID of the selected port
 	set port [.ent get] 
@@ -33,22 +36,6 @@ proc push {} {
 	# Updating the image, the selected port is correct!
 	label .lbl2 -image img2
 	place .lbl2 -x 350 -y 50
-}
-
-proc progr_event {} {
-	# Collect the number of events that the user wants to test
-	global programmated_events
-	set programmated_events [.idwin get] 
-}
-
-proc onEnd { programmated_events events } {
-	# Box poping up at the very end with the numebr of attempted and succesfully detected events
-	#
-	# Arguments:
-	# programmated_events -- NUmber of events that the user define for this run of the program
-	# events -- NUmber of events detected by the system
-    tk_messageBox -type ok -icon info -title Information \
-    -message "Test completed: Detected $events out of $programmated_events"
 }
 
 proc port_init {portnode} {
@@ -83,60 +70,6 @@ proc port_init {portnode} {
 	exit 1
     }
     return $portchan
-}
-
-proc schedule_activation {portchan} {
-	# Schedule the activation of the Syscomp CGR-201. Specifically:
-	#
-	# -- Activate outputs to drive the switch and to power the light sensor circuit.
-	# -- Define the timing to collect data from the light sensor circuit in the digital input.
-	
-	set events 0
-	global programmated_events
-
-    # Activate Digital Output to power light sensor
-    chan puts $portchan "O 1" 
-    after 5
-    chan puts $portchan "G 000 000 050 000"
-    after 5
-
-    # Starting collecting data from digital input
-    set incomingData [read $portchan]
-
-    # Convert the data bytes into signed integers
-    if { [llength {$incomingData}] > 0 } {
-        binary scan $incomingData c* signed
-    }
-	
-    for {set i 0} {$i < $programmated_events} {incr i} {
-    	# Only the light sensor circuit have power
-        chan puts $portchan "O 1"
-        after 2000
-        # Avtivating the switch
-        chan puts $portchan "O 3"
-        after 100
-        for {set j 0} {$j < 50} {incr j} {
-        	# Serial command to receive data from digital input
-            chan puts $portchan "N"
-            after 100
-            set incomingData [read $portchan]
-            if { [llength {$incomingData}] > 0 } {
-                binary scan $incomingData c* signed
-                set light 0
-                # First charachter is capital I, which is the response type for digital input request.
-                scan $incomingData "%c%c" out light
-                # If it is not 0, it means that one of the digital input is 1
-                if {$light != 0} {
-                	# Increasing the number of events detected. To avoid double detection the digital input is not checked anymore (the LED blinks to time)
-                    incr events
-                    break
-                }
-            }
-        }
-        set att [expr $i+1]
-        puts "Attempted events: $att, Detected events: $events"
-    }  
-    onEnd $programmated_events $events
 }
 
 proc send_command {portchan command} {
@@ -178,23 +111,34 @@ image create photo img2 -file "$images/RecordButton.gif"
 label .lbl1 -image img1
 place .lbl1 -x 350 -y 50
 
+label .title1 -text "Events Detection" -font bold -foreground blue
+place .title1 -x 10 -y 90
+
 # GUI label, insert your ID here
 label .id -text "Programmated Events"
 entry .idwin 
-button .idbut -text "Set" -command "progr_event"
+button .idbut -text "Set/Start" -command { progr_event $portchan }
 pack .idwin
 pack .idbut
-place .id -x 10 -y 100
-place .idwin -x 10 -y 140 
-place .idbut -x 250 -y 140 
+place .id -x 10 -y 120
+place .idwin -x 10 -y 160 
+place .idbut -x 250 -y 160 
+
+label .title2 -text "Threshold Detection" -font bold -foreground blue
+place .title2 -x 10 -y 210
 
 # Quit and Start button to start and conclude the execution
 button .quit -text "Quit" -command { exit }
-button .start -text "Start" -command { schedule_activation $portchan }
-place .start -x 50 -y 210 
-place .quit -x 150 -y 210 
+button .start -text "Start" -command { threshold_activation $portchan }
+place .start -x 250 -y 250 
+# place .quit -x 150 -y 280 
+
+# Progression Bar
+canvas .c -width 200 -height 20
+.c create rectangle 0 0 0 20 -tags bar -fill navy
+place .c -x 15 -y 250
 
 
 # Window creation
 wm title . "Capacitive Test" 
-wm geometry . 450x280+100+100
+wm geometry . 400x350+100+100
